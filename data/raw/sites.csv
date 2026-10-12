@@ -1,0 +1,5 @@
+site_id, site_name, country ,city, site_type
+S001, Plant North, Germany, Berlin,Manufacturing
+S002, Plant South, Germany, Munich, Manufacturing
+S003, Warehouse West, Germany, Essen, Logistic
+

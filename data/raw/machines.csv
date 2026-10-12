@@ -1,0 +1,7 @@
+machine_id, site_id, machine_name,machine_type, department, installation_year, status
+M001, SO01, CNC Line 1, CNC Machine, Production, 2018, Active
+M002, S002, Packaging Line 1, Packaging Line, Packaging, 2020, Active
+M003, S002, Furnace 1, Furnace, Production, 2016, Active
+M003, S002, Assembly Robot 1, Robot, Assemnbly, 2021, Active
+M005, S003, Conveyor 1, Conveyor, Logistics, 2019, Active
+
