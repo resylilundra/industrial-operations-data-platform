@@ -20,6 +20,7 @@ narwhals==2.25.0
 numpy==2.5.2
 packaging==26.3
 pandas==3.0.5
+pytest==8.4.2
 pillow==12.3.0
 plotly==6.9.0
 protobuf==7.36.0
@@ -42,3 +43,4 @@ urllib3==2.7.0
 uvicorn==0.52.4
 watchdog==6.0.0
 websockets==16.1.1
+httpx

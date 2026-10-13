@@ -9,6 +9,59 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 DATABASE_PATH = PROJECT_ROOT / "data" / "industrial_operations.db"
 
 
+def _create_tables(connection: sqlite3.Connection) -> None:
+    # SQLite does not enforce foreign keys unless this is enabled.
+    connection.execute("PRAGMA foreign_keys = ON;")
+
+    connection.executescript("""
+        DROP TABLE IF EXISTS energy_data;
+        DROP TABLE IF EXISTS production_data;
+        DROP TABLE IF EXISTS machines;
+        DROP TABLE IF EXISTS sites;
+
+        CREATE TABLE sites (
+            site_id TEXT PRIMARY KEY,
+            site_name TEXT NOT NULL,
+            country TEXT NOT NULL,
+            city TEXT NOT NULL,
+            site_type TEXT NOT NULL
+        );
+
+        CREATE TABLE machines (
+            machine_id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            machine_name TEXT NOT NULL,
+            machine_type TEXT NOT NULL,
+            department TEXT NOT NULL,
+            installation_year INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(site_id)
+        );
+
+        CREATE TABLE production_data (
+            production_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            machine_id TEXT NOT NULL,
+            output_units REAL NOT NULL CHECK (output_units >= 0),
+            defect_units REAL NOT NULL CHECK (defect_units >= 0),
+            downtime_minutes REAL NOT NULL CHECK (downtime_minutes >= 0),
+            UNIQUE (machine_id, timestamp),
+            FOREIGN KEY (machine_id) REFERENCES machines(machine_id)
+        );
+
+        CREATE TABLE energy_data (
+            energy_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            machine_id TEXT NOT NULL,
+            temperature REAL NOT NULL CHECK (temperature BETWEEN 0 AND 200),
+            energy_kwh REAL NOT NULL CHECK (energy_kwh >= 0),
+            vibration REAL NOT NULL CHECK (vibration >= 0),
+            UNIQUE (machine_id, timestamp),
+            FOREIGN KEY (machine_id) REFERENCES machines(machine_id)
+        );
+    """)
+
+
 def main():
     # Load validated records only.
     sites = pd.read_csv(PROCESSED_DIR / "sites_clean.csv")
@@ -20,59 +73,7 @@ def main():
     connection = sqlite3.connect(DATABASE_PATH)
 
     try:
-        # SQLite does not enforce foreign keys unless this is enabled.
-        connection.execute("PRAGMA foreign_keys = ON;")
-
-        cursor = connection.cursor()
-
-        # Child tables must be dropped before their parent tables.
-        cursor.executescript("""
-            DROP TABLE IF EXISTS energy_data;
-            DROP TABLE IF EXISTS production_data;
-            DROP TABLE IF EXISTS machines;
-            DROP TABLE IF EXISTS sites;
-
-            CREATE TABLE sites (
-                site_id TEXT PRIMARY KEY,
-                site_name TEXT NOT NULL,
-                country TEXT NOT NULL,
-                city TEXT NOT NULL,
-                site_type TEXT NOT NULL
-            );
-
-            CREATE TABLE machines (
-                machine_id TEXT PRIMARY KEY,
-                site_id TEXT NOT NULL,
-                machine_name TEXT NOT NULL,
-                machine_type TEXT NOT NULL,
-                department TEXT NOT NULL,
-                installation_year INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                FOREIGN KEY (site_id) REFERENCES sites(site_id)
-            );
-
-            CREATE TABLE production_data (
-                production_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                machine_id TEXT NOT NULL,
-                output_units REAL NOT NULL CHECK (output_units >= 0),
-                defect_units REAL NOT NULL CHECK (defect_units >= 0),
-                downtime_minutes REAL NOT NULL CHECK (downtime_minutes >= 0),
-                UNIQUE (machine_id, timestamp),
-                FOREIGN KEY (machine_id) REFERENCES machines(machine_id)
-            );
-
-            CREATE TABLE energy_data (
-                energy_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                machine_id TEXT NOT NULL,
-                temperature REAL NOT NULL CHECK (temperature BETWEEN 0 AND 200),
-                energy_kwh REAL NOT NULL CHECK (energy_kwh >= 0),
-                vibration REAL NOT NULL CHECK (vibration >= 0),
-                UNIQUE (machine_id, timestamp),
-                FOREIGN KEY (machine_id) REFERENCES machines(machine_id)
-            );
-        """)
+        _create_tables(connection)
 
         # Insert parents before children, preserving foreign-key integrity.
         sites.to_sql("sites", connection, if_exists="append", index=False)
