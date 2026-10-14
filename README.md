@@ -1,9 +1,9 @@
 # Industrial Operations Data Platform
 
-A Python prototype for preparing industrial operations data for analysis. The
-current implementation reads CSV files, validates their contents, saves
-accepted and rejected records separately, and loads accepted records into
-SQLite.
+A Python prototype that takes industrial operations data from CSV files through
+validation and SQLite storage, then exposes it through a FastAPI service and a
+live Streamlit dashboard. It also includes a simulator for generating
+time-stamped production and energy readings.
 
 ## Current progress
 
@@ -17,12 +17,17 @@ SQLite.
   corrections.
 - Load clean records into SQLite with primary keys, checks, unique constraints,
   and foreign keys.
-- Provide FastAPI endpoints for machines, production records, energy records,
-  total output, and average temperature.
-- Display KPI values and machine, production, and energy tables in a Streamlit
-  dashboard.
+- Provide FastAPI endpoints for machine, production, and energy records; five
+  KPIs; and per-machine production performance.
+- Filter KPIs and performance readings by all-time or last-hour period.
+- Display KPI values, machine/production/energy tables, and per-machine output
+  and defect-rate charts in a Streamlit dashboard that refreshes every
+  10 seconds.
+- Generate simulated production and energy readings for active machines every
+  10 seconds.
 - Test validation rules, SQL queries, SQLite foreign-key enforcement, and API
-  endpoints with pytest.
+  endpoints with pytest. Query tests use an in-memory database, and API tests
+  use a temporary SQLite database with seeded sample records.
 
 ## Data and validation
 
@@ -94,20 +99,20 @@ Run all tests from the project root:
 python -m pytest -v
 ```
 
-The tests use small in-memory DataFrames and an in-memory SQLite database, so
-they do not need the project CSV files or modify the saved SQLite database.
-For the printed rejected-row details and SQLite error message, turn off pytest's
-output capture:
+The tests use small sample DataFrames and temporary/in-memory SQLite databases.
+They do not need the project CSV files or modify the saved project database.
+The API fixture seeds one site, one machine, and production/energy readings;
+the KPI tests assert the exact calculated values. To show captured test output,
+use:
 
 ```bash
 python -m pytest -v -s
 ```
 
 The current tests cover duplicate machine IDs, unknown site IDs, negative
-production output, out-of-range temperature, and SQLite rejection of a machine
-that references a site that does not exist. Query tests use an in-memory
-database. API tests currently read the project database at
-`data/industrial_operations.db`.
+production output, out-of-range temperature, SQLite rejection of a machine
+that references a site that does not exist, query calculations, and API
+responses.
 
 ## Run the API and dashboard
 
@@ -137,6 +142,18 @@ Available endpoints:
 | GET | `/energy` | Energy records |
 | GET | `/kpis/total-output` | Sum of production output |
 | GET | `/kpis/average-temperature` | Average temperature, or `null` if there is no energy data |
+| GET | `/kpis/defect-rate` | Defect units as a percentage of total output, or `null` if there is no output |
+| GET | `/kpis/energy-per-unit` | Total energy in kWh divided by total output, or `null` if there is no output |
+| GET | `/kpis/total-downtime` | Sum of production downtime in minutes |
+| GET | `/production/performance` | Timestamped output and defect-rate percentage for each machine |
+
+All KPI endpoints and `/production/performance` accept the optional `period`
+query parameter:
+
+- `period=all_time` (default): include all readings.
+- `period=last_hour`: include readings from the previous hour.
+
+For example: `http://127.0.0.1:8000/kpis/total-output?period=last_hour`.
 
 Keep the API running. Open a second terminal, activate the same virtual
 environment, and start the Streamlit dashboard:
@@ -146,10 +163,28 @@ python -m streamlit run dashboard/streamlit_app.py
 ```
 
 Open the local URL printed by Streamlit, usually `http://localhost:8501`. The
-dashboard requests data from the API, shows total output and average
-temperature, and displays machine, production, and energy records in tables.
-Keep both terminals running while using the dashboard. Stop either service
-with `Ctrl+C` in its terminal.
+dashboard requests data from the API, shows the KPI values and time-series
+charts, and displays machine, production, and energy records in tables. Its
+period selector applies to the KPIs and machine-performance charts. Keep both
+terminals running while using the dashboard. Stop either service with `Ctrl+C`
+in its terminal.
+
+## Simulate live readings
+
+The simulator requires an initialized database containing at least one active
+machine. Start it from another terminal in the project root:
+
+```bash
+python -m backend.simulate_data
+```
+
+It appends one production reading and one energy reading per active machine
+every 10 seconds. The dashboard refreshes on the same interval. Stop the
+simulator with `Ctrl+C`.
+
+The simulator adds to the database, but `python -m backend.load_to_sqlite`
+drops and recreates its tables. Do not rerun the loader if you want to preserve
+simulated readings.
 
 ## Project structure
 
@@ -160,7 +195,8 @@ industrial-operations-data-platform/
 │   ├── validate_data.py
 │   ├── database.py          # SQLite connection helper
 │   ├── main.py              # FastAPI application and endpoints
-│   └── queries.py           # SQL queries and KPI calculations
+│   ├── queries.py           # SQL queries and KPI calculations
+│   └── simulate_data.py     # Periodic sample-reading generator
 ├── dashboard/
 │   └── streamlit_app.py     # Streamlit dashboard
 ├── data/
