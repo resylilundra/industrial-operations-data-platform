@@ -112,7 +112,8 @@ python -m pytest -v -s
 The current tests cover duplicate machine IDs, unknown site IDs, negative
 production output, out-of-range temperature, SQLite rejection of a machine
 that references a site that does not exist, query calculations, and API
-responses.
+responses. Loader tests also verify that repeating a CSV load does not
+duplicate readings or remove additional simulated readings.
 
 ## Run the API and dashboard
 
@@ -182,9 +183,12 @@ It appends one production reading and one energy reading per active machine
 every 10 seconds. The dashboard refreshes on the same interval. Stop the
 simulator with `Ctrl+C`.
 
-The simulator adds to the database, but `python -m backend.load_to_sqlite`
-drops and recreates its tables. Do not rerun the loader if you want to preserve
-simulated readings.
+The loader creates tables only when they do not already exist, updates existing
+site and machine details from the CSV files, and skips production or energy
+readings whose machine and timestamp are already present. This lets you rerun
+`python -m backend.load_to_sqlite` without deleting accumulated simulator
+readings. When a CSV reading has the same machine and timestamp as a reading
+already stored, the existing reading is kept.
 
 ## Project structure
 

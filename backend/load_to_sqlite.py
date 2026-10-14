@@ -14,12 +14,7 @@ def _create_tables(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA foreign_keys = ON;")
 
     connection.executescript("""
-        DROP TABLE IF EXISTS energy_data;
-        DROP TABLE IF EXISTS production_data;
-        DROP TABLE IF EXISTS machines;
-        DROP TABLE IF EXISTS sites;
-
-        CREATE TABLE sites (
+        CREATE TABLE IF NOT EXISTS sites (
             site_id TEXT PRIMARY KEY,
             site_name TEXT NOT NULL,
             country TEXT NOT NULL,
@@ -27,7 +22,7 @@ def _create_tables(connection: sqlite3.Connection) -> None:
             site_type TEXT NOT NULL
         );
 
-        CREATE TABLE machines (
+        CREATE TABLE IF NOT EXISTS machines (
             machine_id TEXT PRIMARY KEY,
             site_id TEXT NOT NULL,
             machine_name TEXT NOT NULL,
@@ -38,7 +33,7 @@ def _create_tables(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (site_id) REFERENCES sites(site_id)
         );
 
-        CREATE TABLE production_data (
+        CREATE TABLE IF NOT EXISTS production_data (
             production_id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
             machine_id TEXT NOT NULL,
@@ -49,7 +44,7 @@ def _create_tables(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (machine_id) REFERENCES machines(machine_id)
         );
 
-        CREATE TABLE energy_data (
+        CREATE TABLE IF NOT EXISTS energy_data (
             energy_id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
             machine_id TEXT NOT NULL,
@@ -74,48 +69,15 @@ def main():
 
     try:
         _create_tables(connection)
+        load_data(connection, sites, machines, production_data, energy_data)
 
-        # Insert parents before children, preserving foreign-key integrity.
-        sites.to_sql("sites", connection, if_exists="append", index=False)
-        machines.to_sql("machines", connection, if_exists="append", index=False)
-        production_data.to_sql(
-            "production_data",
-            connection,
-            if_exists="append",
-            index=False,
-        )
-        energy_data.to_sql(
-            "energy_data",
-            connection,
-            if_exists="append",
-            index=False,
-        )
+        print("Load complete. Current database row totals:\n")
 
-        # Confirm the expected row totals.
-        expected_counts = {
-            "sites": 3,
-            "machines": 3,
-            "production_data": 6,
-            "energy_data": 6,
-        }
-
-        print("Load complete:\n")
-
-        for table_name, expected_count in expected_counts.items():
+        for table_name in ("sites", "machines", "production_data", "energy_data"):
             row_count = connection.execute(
                 f"SELECT COUNT(*) FROM {table_name}"
             ).fetchone()[0]
-
-            print(
-                f"{table_name}: {row_count} row(s) loaded "
-                f"(expected: {expected_count})"
-            )
-
-            if row_count != expected_count:
-                raise ValueError(
-                    f"Unexpected row count for {table_name}: "
-                    f"{row_count}, expected {expected_count}"
-                )
+            print(f"{table_name}: {row_count} row(s)")
 
         connection.commit()
         print(f"\nSQLite database created successfully: {DATABASE_PATH}")
@@ -126,6 +88,102 @@ def main():
 
     finally:
         connection.close()
+
+def load_data(
+    connection: sqlite3.Connection,
+    sites: pd.DataFrame,
+    machines: pd.DataFrame,
+    production_data: pd.DataFrame,
+    energy_data: pd.DataFrame,
+) -> None:
+    site_columns = ("site_id", "site_name", "country", "city", "site_type")
+    connection.executemany(
+        """
+        INSERT INTO sites (site_id, site_name, country, city, site_type)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(site_id) DO UPDATE SET
+            site_name = excluded.site_name,
+            country = excluded.country,
+            city = excluded.city,
+            site_type = excluded.site_type
+        """,
+        [
+            tuple(row[column] for column in site_columns)
+            for row in sites.to_dict(orient="records")
+        ],
+    )
+
+    machine_columns = (
+        "machine_id",
+        "site_id",
+        "machine_name",
+        "machine_type",
+        "department",
+        "installation_year",
+        "status",
+    )
+    connection.executemany(
+        """
+        INSERT INTO machines (
+            machine_id, site_id, machine_name, machine_type,
+            department, installation_year, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(machine_id) DO UPDATE SET
+            site_id = excluded.site_id,
+            machine_name = excluded.machine_name,
+            machine_type = excluded.machine_type,
+            department = excluded.department,
+            installation_year = excluded.installation_year,
+            status = excluded.status
+        """,
+        [
+            tuple(row[column] for column in machine_columns)
+            for row in machines.to_dict(orient="records")
+        ],
+    )
+
+    production_columns = (
+        "timestamp",
+        "machine_id",
+        "output_units",
+        "defect_units",
+        "downtime_minutes",
+    )
+    connection.executemany(
+        """
+        INSERT INTO production_data (
+            timestamp, machine_id, output_units, defect_units, downtime_minutes
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(machine_id, timestamp) DO NOTHING
+        """,
+        [
+            tuple(row[column] for column in production_columns)
+            for row in production_data.to_dict(orient="records")
+        ],
+    )
+
+    energy_columns = (
+        "timestamp",
+        "machine_id",
+        "temperature",
+        "energy_kwh",
+        "vibration",
+    )
+    connection.executemany(
+        """
+        INSERT INTO energy_data (
+            timestamp, machine_id, temperature, energy_kwh, vibration
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(machine_id, timestamp) DO NOTHING
+        """,
+        [
+            tuple(row[column] for column in energy_columns)
+            for row in energy_data.to_dict(orient="records")
+        ],
+    )
 
 
 if __name__ == "__main__":
