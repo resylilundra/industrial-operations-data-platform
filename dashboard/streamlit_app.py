@@ -1,7 +1,10 @@
-import requests
-import streamlit as st
+import duckdb
 import pandas as pd
 import plotly.express as px
+import requests
+import streamlit as st
+
+from backend.query_parquet import get_parquet_kpis
 
 API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -27,22 +30,67 @@ st.write("Production, machine, and energy information from the operations databa
 
 @st.fragment(run_every="10s")
 def dashboard_content():
-    period_label = st.selectbox("KPI period", ["All time", "Last hour"])
+    kpi_source = st.radio(
+        "KPI data source",
+        ["SQLite via API", "Parquet via DuckDB"],
+        horizontal=True,
+    )
+    st.caption(f"KPI source: {kpi_source}")
+
+    period_label = st.selectbox(
+        "SQLite KPI and chart period",
+        ["All time", "Last hour"],
+    )
     period = "all_time" if period_label == "All time" else "last_hour"
 
     machines_ok, machines = fetch_api_data("/machines")
     production_ok, production = fetch_api_data("/production")
     energy_ok, energy = fetch_api_data("/energy")
-    total_output_ok, total_output = fetch_api_data("/kpis/total-output",params={"period": period})
-    average_temperature_ok, average_temperature = fetch_api_data(
-        "/kpis/average-temperature",params={"period": period}
-    )
-    defect_rate_ok, defect_rate = fetch_api_data("/kpis/defect-rate",params={"period": period})
-    energy_per_unit_ok, energy_per_unit = fetch_api_data("/kpis/energy-per-unit",params={"period": period})
-    total_downtime_ok, total_downtime = fetch_api_data("/kpis/total-downtime",params={"period": period})
+    if kpi_source == "SQLite via API":
+        total_output_ok, total_output = fetch_api_data(
+            "/kpis/total-output",
+            params={"period": period},
+        )
+        average_temperature_ok, average_temperature = fetch_api_data(
+            "/kpis/average-temperature",
+            params={"period": period},
+        )
+        defect_rate_ok, defect_rate = fetch_api_data(
+            "/kpis/defect-rate",
+            params={"period": period},
+        )
+        energy_per_unit_ok, energy_per_unit = fetch_api_data(
+            "/kpis/energy-per-unit",
+            params={"period": period},
+        )
+        total_downtime_ok, total_downtime = fetch_api_data(
+            "/kpis/total-downtime",
+            params={"period": period},
+        )
+    else:
+        try:
+            parquet_kpis = get_parquet_kpis()
+            total_output = parquet_kpis["total_output"]
+            defect_rate = parquet_kpis["defect_rate"]
+            total_downtime = parquet_kpis["total_downtime"]
+            average_temperature = parquet_kpis["average_temperature"]
+            energy_per_unit = parquet_kpis["energy_per_unit"]
+            total_output_ok = defect_rate_ok = total_downtime_ok = True
+            average_temperature_ok = energy_per_unit_ok = True
+        except (ValueError, duckdb.Error) as error:
+            st.error(f"Could not load Parquet KPIs: {error}")
+            total_output_ok = defect_rate_ok = total_downtime_ok = False
+            average_temperature_ok = energy_per_unit_ok = False
+            total_output = defect_rate = total_downtime = None
+            average_temperature = energy_per_unit = None
+        st.caption(
+            "DuckDB KPIs use all available Parquet readings; "
+            "the period selector only affects SQLite KPIs and charts."
+        )
+
     performance_ok, performance = fetch_api_data(
-    "/production/performance",
-    params={"period": period},
+        "/production/performance",
+        params={"period": period},
     )
     st.caption("Dashboard data refreshes every 10 seconds.")
     st.header("Key performance indicators")
